@@ -1,25 +1,105 @@
-from nicegui import ui
 
-lang_list = ['English', 'French', 'German', 'Spanish', 'Chinese', 'Japanese', 'Korean']
+from nicegui import ui
+import requests
+import json
+import base64
+
+lang_list = ['afrikaans', 'amharic', 'arabic', 'bulgarian', 'bosnian', 'catalan', 
+       'chinese (simplified)', 'czech', 'danish', 'dutch', 'english', 'finnish', 
+       'french', 'german', 'greek', 'gujarati', 
+       'hebrew', 'hindi', 'hungarian', 'icelandic', 
+       'indonesian', 'italian', 'japanese',
+       'javanese', 'kannada', 'korean', 'latin', 
+       'latvian', 'lithuanian', 'malay', 'malayalam',
+       'marathi', 'myanmar', 'nepali', 'norwegian', 
+       'polish', 'portuguese', 'punjabi', 'romanian',
+       'russian', 'serbian', 'sinhala', 'swedish', 
+       'tamil', 'telugu', 'thai', 'turkish', 'ukrainian',
+       'urdu', 'vietnamese' ]
 
 feedback_label = None
 reply_avatar = 'https://api.dicebear.com/9.x/croodles-neutral/svg?seed=Chloe'
+phoneme_url = 'https://translator-sharmilathippa1.replit.app/translate_to_phoneme'
+audio_response_url = 'https://translator-sharmilathippa1.replit.app/translate_to_audio'
+output_file_path = 'output.mp3'
+
+def save_audio_file(input_text, lang):
+    try:
+        audio_response = requests.post(audio_response_url, json={'input_text': input_text, 'target_language': lang})
+
+        if audio_response.status_code == 200 and audio_response.headers.get('Content-Type') == 'audio/mpeg':
+            with open(output_file_path, 'wb') as audio_file:
+                for chunk in audio_response.iter_content(chunk_size=8192):
+                    audio_file.write(chunk)
+            print(f"Audio file saved succesfully at {output_file_path}")
+            return True
+        else:
+            print(f"Failed to retrieve audio. Status Code: {audio_response.status_code}")
+            print("Response content type:", audio_response.headers.get('Content-Type'))
+            print("Response content:", audio_response.text)
+            ui.notify(f"Failed to retrieve audio. Status Code: {audio_response.status_code}", color='red')
+            return False
+    except Exception as e:
+        print("Error occurred while saving audio file:", e)
+        ui.notify("Error occurred while saving audio file", color='red')
+        return False
 
 def generate_translation():
 
-    global feedback_label
     input_text = text_input.value
     lang = lang_select.value
 
     if input_text and lang:
-        message = f'Translating "{input_text}" to {lang}...'
-        if feedback_label:
-            feedback_label.text = message
-        else:
-           
-            with reply_container:
-                feedback_label = ui.chat_message(text = message, avatar = reply_avatar).classes('w-full')
-                #feedback_label.style('background-color: #672733')
+        
+        reply_container.clear()
+        try:
+            phoneme_response = requests.post(phoneme_url, json={'input_text': input_text, 'target_language': lang})
+            #audio_response = requests.post(audio_response_url, json={'input_text': input_text, 'target_language': lang})
+        except requests.RequestException as e:
+            ui.notify(f"Error: {e}", position='top-right', color='red')
+            return
+            
+        with reply_container:
+            if phoneme_response.status_code == 200:
+                try:
+                    phoneme = phoneme_response.json()
+
+                    """
+                    # Safely handle JSON parsing for audio response
+                    if audio_response.headers.get('Content-Type') == 'audio/mpeg':
+                        audio_output = audio_response.content
+                        
+                        audio_base64 = base64.b64encode(audio_output).decode('utf-8')
+                        audio_url = f"data:audio/mpeg;base64,{audio_base64}"
+                    """
+                    # Display the transliterated text
+                    transliterated_text = phoneme.get('transliterated_text', 'No transliterated text found.')
+                    ui.chat_message(text=transliterated_text, avatar=reply_avatar).classes('w-full')
+                    if save_audio_file(input_text, lang):
+                        print("here!")
+                        ui.audio(src = output_file_path, autoplay=True)
+                    """
+                        # If audio_url exists, display the audio player
+                        if audio_url:
+                            ui.audio(audio_url).classes('w-full')
+                        else:
+                            ui.notify('Audio URL not found in the response.', color='warning')
+                    else:
+                        ui.notify('Received non-JSON response for audio.', color='red')
+                         print('Audio Response Type:', audio_response.headers.get('Content-Type'))
+                    """
+                except ValueError as e:
+                        # Handle JSON decoding errors
+                        ui.notify('Error parsing JSON response from the API.', color='red')
+                        print(f'JSONDecodeError: {e}')
+                        print('Phoneme Response Text:', phoneme_response.text)
+                        print('Audio Response Text:', audio_response.text)
+            else:
+                    # Handle non-200 status codes
+                    error_message = f"Phoneme API Error: {phoneme_response.status_code}, Audio API Error: {audio_response.status_code}"
+                    ui.notify(error_message, color='red')
+                    print("Phoneme Response Status Code:", phoneme_response.status_code)
+                    print("Audio Response Status Code:", audio_response.status_code)
     else:
         ui.notify('Please enter text and select a language.', color = 'red')
 
@@ -39,7 +119,8 @@ with ui.row().classes("w-full justify-center"):
             with ui.row().classes('w-full justify-center'):
                 ui.button('Generate Translation', on_click=generate_translation)
         ui.space()
-        reply_container = ui.column().classes('w-full')
+        with ui.card().classes('w-full'):
+            reply_container = ui.column().classes('w-full')
         
 # Start the NiceGUI app
 ui.run()
